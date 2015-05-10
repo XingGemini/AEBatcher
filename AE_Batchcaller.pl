@@ -78,15 +78,23 @@ my %annotated = ();
 
 #4858615	2	1	chr5	77396835	77396838	ref	TTC	TTC	564	563	PASS
 #4858615	2	2	chr5	77396835	77396838	del	TTC		564	563	PASS
+my $prv_loci = "";
+my $output_line = "";
 while (<$fhvar>) {
 	#print $_;
-	if (/^\d+\t+\d+\t+\S+\t+(chr\S+)\t+(\d+)\t+(\d+)\t+(\S+)\t+(\S+)\t(.?)\t/) {
+	if (/^\d+\t+\d+\t+(\S+)\t+(chr\S+)\t+(\d+)\t+(\d+)\t+(\S+)\t+(\S+)\t(.*?)\t/) {
 		$cnt ++;
-		my ($chr, $begin, $end, $type, $ref, $var) = ($1, $2, $3, $4, $5, $6);
+		my ($allele, $chr, $begin, $end, $type, $ref, $var) = ($1, $2, $3, $4, $5, $6, $7);
 		
 		if ($cnt%10000 == 0) {
 			print "$cnt finished ($chr, $begin, $end, $ref, $var)";
 		}
+
+		if ($cnt == 5) {
+			#exit;
+		}
+
+		#print "line $_\n";
 
 		my $match_flag = &isMatch($chr, $begin, $end, $curr_loci);
 		if ($match_flag > 0) {
@@ -110,25 +118,67 @@ while (<$fhvar>) {
 
 		if ($match_flag == 0) {
 			print M $_;
-			print "($chr, $begin, $end, $ref, $var)\n";
+			print "match ($chr, $begin, $end, $ref, $var)\n";
+
 			print CHLD_IN &inputjson($chr, $begin, $end, $ref, $var);
 			my $tmpline = <CHLD_OUT>;
 
 			my $decoded_json = decode_json($tmpline);
 
-			if ($ref eq $var) {
-				next;
-			} elsif ($var eq "?") {
-				print "$curr_loci\n";
-				print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
-				next;
+			my $zygosity = '';
+			if ($prv_loci eq '') {
+				$prv_loci = "$chr $begin $end $ref $var $type";
+			} else {
+				my ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) = split (/\s+/, $prv_loci);
+
+				print "($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type)"."\n";
+
+				if (($prv_chr eq $chr) && ($prv_begin == $begin) && ($prv_end == $end)) {
+					if ($prv_var eq $var) {
+						$zygosity = "Homozygous";
+						print ANN $output_line."\t".$zygosity."\n";
+					} else {
+						$zygosity = "Heterozygous";
+						if ($type ne 'ref') {
+							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t".$decoded_json->{"var"}{"VarName"});
+							print ANN $tmp."\t".$zygosity."\n";
+						} else {
+							print ANN $output_line."\t".$zygosity."\n";
+						}
+					}
+					$prv_loci = '';
+					$output_line = '';
+				}
 			}
 
-			if (exists $annotated {$decoded_json->{"var"}{"VarName"}}) {
+			if ($ref eq $var) {
+				if (($ref eq '=') && ($var eq '=')) {
+					printf ANN "$chr\t$begin\t$end\t$ref\t$var\tref\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
+					$prv_loci = '';
+					$output_line = '';
+				} else {
+					print "here a\n";
+					$output_line = '';
+				}
+				next;
+			} elsif ($var eq "?") {
+				print "NO CALL $curr_loci\n";
+				print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
 				next;
 			} else {
-				$annotated {$decoded_json->{"var"}{"VarName"}} = $decoded_json;
-				print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t".$decoded_json->{"var"}{"VarName"}."\n";				
+
+			#if (exists $annotated {$decoded_json->{"var"}{"VarName"}}) {
+			#	next;
+			#} else {
+			#	$annotated {$decoded_json->{"var"}{"VarName"}} = $decoded_json;
+				print "snp\n";
+				$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t".$decoded_json->{"var"}{"VarName"});
+
+				if ($chr eq 'chrX') {
+					print ANN $output_line."\n";
+					$prv_loci = '';
+					$output_line = '';
+				}
 			}
 		}
 	}	
