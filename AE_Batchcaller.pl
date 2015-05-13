@@ -129,9 +129,9 @@ while (<$fhvar>) {
 			if ($prv_loci eq '') {
 				$prv_loci = "$chr $begin $end $ref $var $type";
 			} else {
-				my ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) = split (/\s+/, $prv_loci);
+				my ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) = split (/\s/, $prv_loci);
 
-				print "($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type)"."\n";
+				print "pre ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) $prv_loci"."\n";
 
 				if (($prv_chr eq $chr) && ($prv_begin == $begin) && ($prv_end == $end)) {
 					if ($prv_var eq $var) {
@@ -140,7 +140,17 @@ while (<$fhvar>) {
 					} else {
 						$zygosity = "Heterozygous";
 						if ($type ne 'ref') {
-							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t".$decoded_json->{"var"}{"VarName"});
+							my $var_name = '';
+							if (exists ($decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}})) {
+								$var_name = $decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}}{"TranscriptVarName"};
+							} else {
+								$var_name = $decoded_json->{"var"}{"VarName"};
+							}
+
+							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t$var_name");
+							print ANN $tmp."\t".$zygosity."\n";
+						} elsif ($type eq 'no-call') {
+							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\tno-call");
 							print ANN $tmp."\t".$zygosity."\n";
 						} else {
 							print ANN $output_line."\t".$zygosity."\n";
@@ -162,8 +172,15 @@ while (<$fhvar>) {
 				}
 				next;
 			} elsif ($var eq "?") {
-				print "NO CALL $curr_loci\n";
-				print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
+				if ($allele eq 'all') {
+					print "NO CALL $curr_loci\n";
+					print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
+					$prv_loci = '';
+					$output_line = '';
+				} else {
+					print "NO CALL $curr_loci in one allele\n";
+					$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\tno-call");
+				}
 				next;
 			} else {
 
@@ -172,7 +189,14 @@ while (<$fhvar>) {
 			#} else {
 			#	$annotated {$decoded_json->{"var"}{"VarName"}} = $decoded_json;
 				print "snp\n";
-				$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t".$decoded_json->{"var"}{"VarName"});
+
+				my $var_name = '';
+				if (exists ($decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}})) {
+					$var_name = $decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}}{"TranscriptVarName"};
+				} else {
+					$var_name = $decoded_json->{"var"}{"VarName"};
+				}
+				$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t$var_name");
 
 				if ($chr eq 'chrX') {
 					print ANN $output_line."\n";
