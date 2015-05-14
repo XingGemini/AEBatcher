@@ -206,15 +206,18 @@ sub printAnnotationLine() {
 	} else {
 		my $var_name = '';
 		my $tx_orientation = '';
+		my $genepart = '';
 		my $rpt_varname = $var_name = $decoded_json->{"var"}{"VarName"};
 		if (exists ($decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}})) {
 			$var_name = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"TranscriptVarName"};
 			$tx_orientation = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"TranscriptOrientation"};
+			$genepart = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"GenePart"};
 		} else {
 			$var_name = $decoded_json->{"var"}{"VarName"};
 			print "varname $curr_loci $var_name\n";
 			my $txname = (split (/\s*\(/, $var_name))[0];
 			$tx_orientation = $decoded_json->{"trInfo"}{$txname}{"TranscriptOrientation"};
+			$genepart = $decoded_json->{"trInfo"}{$txname}{"GenePart"};
 			print "varname $var_name $txname $tx_orientation \n";
 		}
 		
@@ -232,7 +235,7 @@ sub printAnnotationLine() {
 			$dbsnpIds = $decoded_json->{"var"}{"dbsnpIds"};
 		}
 
-		$rtn = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci_r->{$curr_loci}\t$gene_r->{$loci{$curr_loci}}\t$qual\t$transcript_r->{$loci{$curr_loci}}\t$var_name\t$rpt_varname\t$tx_orientation\t$tenK_AF\t$dbsnpIds");
+		$rtn = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci_r->{$curr_loci}\t$gene_r->{$loci{$curr_loci}}\t$qual\t$transcript_r->{$loci{$curr_loci}}\t$var_name\t$rpt_varname\t$tx_orientation\t$genepart\t$tenK_AF\t$dbsnpIds");
 	}
 
 	return $rtn;
