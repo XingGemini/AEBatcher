@@ -54,6 +54,7 @@ print "perl $AE_path/AE_xs.pl\n";
 my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, "perl $AE_path/AE_xs.pl")
 #my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, 'cat')
     or die "open3() failed $!";
+    # open filehandles for input stream, output stream and error stream
 
 my $pid_var = open3(\*VARCHLD_IN, \*VARCHLD_OUT, \*VARCHLD_ERR, "bzcat $var_f")
 #my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, 'cat')
@@ -79,22 +80,22 @@ my %annotated = ();
 #4858615	2	1	chr5	77396835	77396838	ref	TTC	TTC	564	563	PASS
 #4858615	2	2	chr5	77396835	77396838	del	TTC		564	563	PASS
 my $prv_loci = "";
-my $output_line = "";
+my $line1 = "";
 while (<$fhvar>) {
 	#print $_;
-	if (/^\d+\t+\d+\t+(\S+)\t+(chr\S+)\t+(\d+)\t+(\d+)\t+(\S+)\t+(\S+)\t(.*?)\t/) {
+	if (/^\d+\t+(\d+)\t+(\S+)\t+(chr\S+)\t+(\d+)\t+(\d+)\t(\S*?)\t(\S*?)\t(.*?)\t\d*\t\d*\t(\S*)/) {
 		$cnt ++;
-		my ($allele, $chr, $begin, $end, $type, $ref, $var) = ($1, $2, $3, $4, $5, $6, $7);
+		my ($ploidy, $allele, $chr, $begin, $end, $type, $ref, $var, $qual) = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 		
 		if ($cnt%10000 == 0) {
 			print "$cnt finished ($chr, $begin, $end, $ref, $var)";
 		}
 
-		if ($cnt == 5) {
-			#exit;
-		}
+		#if ($end != 35683240) {
+		#	next;
+		#}
 
-		#print "line $_\n";
+		print "line $_\n";
 
 		my $match_flag = &isMatch($chr, $begin, $end, $curr_loci);
 		if ($match_flag > 0) {
@@ -121,97 +122,128 @@ while (<$fhvar>) {
 			print "match ($chr, $begin, $end, $ref, $var)\n";
 
 			print CHLD_IN &inputjson($chr, $begin, $end, $ref, $var);
+			#Give the AE stream an input json string
 			my $tmpline = <CHLD_OUT>;
+			#The AE stream output (just one line of json output)
 
 			my $decoded_json = decode_json($tmpline);
+			#json structure handle
 
-			my $zygosity = '';
-			if ($prv_loci eq '') {
+			if ($allele eq 'all') {
+				if (($ref eq '=') && ($var eq '=')) {
+					printf ANN "$chr\t$begin\t$end\t$ref\t$var\tref\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\tN/A\t$transcript{$loci{$curr_loci}}\n";
+				} elsif ($var eq '?') {
+					print "NO CALL $curr_loci\n";
+					print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\tN/A\t$transcript{$loci{$curr_loci}}\n";
+				} else {
+					print "Impossible allele all\n";
+				}
+			} elsif (($allele == 1) && ($ploidy == 1)) {
+				my $output_line = &printAnnotationLine($chr, $begin, $end, $ref, $var, $type, $qual,
+														\%loci, \%gene, \%transcript, 
+														$curr_loci, 
+														$decoded_json);
+				print ANN $output_line."\n";
+			} elsif (($allele == 1) && ($ploidy == 2)) {
 				$prv_loci = "$chr $begin $end $ref $var $type";
-			} else {
-				my ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) = split (/\s/, $prv_loci);
+				$line1 = '';
 
-				print "pre ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) $prv_loci"."\n";
+				if ($ref eq $var) {
+					next;
+				} else {
+					$line1 = &printAnnotationLine($chr, $begin, $end, $ref, $var, $type, $qual,
+														\%loci, \%gene, \%transcript, 
+														$curr_loci, 
+														$decoded_json);
+
+					#print "line1 $line1\n";
+					next;
+				}
+			} elsif (($allele == 2) && ($ploidy == 2)) {
+				my ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) = split (/\s/, $prv_loci);
+				my $zygosity = '';
+
+				#print "pre ($prv_chr, $prv_begin, $prv_end, $prv_ref, $prv_var, $prv_type) $prv_loci"."\n";
 
 				if (($prv_chr eq $chr) && ($prv_begin == $begin) && ($prv_end == $end)) {
 					if ($prv_var eq $var) {
 						$zygosity = "Homozygous";
-						print ANN $output_line."\t".$zygosity."\n";
+						print ANN $line1."\t".$zygosity."\n";
 					} else {
 						$zygosity = "Heterozygous";
-						if ($type ne 'ref') {
-							my $var_name = '';
-							if (exists ($decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}})) {
-								$var_name = $decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}}{"TranscriptVarName"};
-							} else {
-								$var_name = $decoded_json->{"var"}{"VarName"};
-							}
+						my $line2 = ''; 
 
-							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t$var_name");
-							print ANN $tmp."\t".$zygosity."\n";
-						} elsif ($type eq 'no-call') {
-							my $tmp = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\tno-call");
-							print ANN $tmp."\t".$zygosity."\n";
-						} else {
-							print ANN $output_line."\t".$zygosity."\n";
+						if ($ref ne $var) {
+							$line2 = &printAnnotationLine($chr, $begin, $end, $ref, $var, $type, $qual,
+														\%loci, \%gene, \%transcript, 
+														$curr_loci, 
+														$decoded_json);
+						}
+							
+						if ($line1 ne '') {
+							print ANN $line1."\t".$zygosity."\n";
+						}
+						
+						if ($line2 ne '') {
+							print ANN $line2."\t".$zygosity."\n";
 						}
 					}
-					$prv_loci = '';
-					$output_line = '';
-				}
-			}
-
-			if ($ref eq $var) {
-				if (($ref eq '=') && ($var eq '=')) {
-					printf ANN "$chr\t$begin\t$end\t$ref\t$var\tref\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
-					$prv_loci = '';
-					$output_line = '';
-				} else {
-					print "here a\n";
-					$output_line = '';
-				}
-				next;
-			} elsif ($var eq "?") {
-				if ($allele eq 'all') {
-					print "NO CALL $curr_loci\n";
-					print ANN "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\n";
-					$prv_loci = '';
-					$output_line = '';
-				} else {
-					print "NO CALL $curr_loci in one allele\n";
-					$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\tno-call");
-				}
-				next;
+				}	
 			} else {
-
-			#if (exists $annotated {$decoded_json->{"var"}{"VarName"}}) {
-			#	next;
-			#} else {
-			#	$annotated {$decoded_json->{"var"}{"VarName"}} = $decoded_json;
-				print "snp\n";
-
-				my $var_name = '';
-				if (exists ($decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}})) {
-					$var_name = $decoded_json->{"trInfo"}{$transcript{$loci{$curr_loci}}}{"TranscriptVarName"};
-				} else {
-					$var_name = $decoded_json->{"var"}{"VarName"};
-				}
-				$output_line = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci{$curr_loci}\t$gene{$loci{$curr_loci}}\t$transcript{$loci{$curr_loci}}\t$var_name");
-
-				if ($chr eq 'chrX') {
-					print ANN $output_line."\n";
-					$prv_loci = '';
-					$output_line = '';
-				}
+				print "Impossible\n";
 			}
 		}
-	}	
+	}
 #	exit;
 }
 close (RCD);
 close (ANN);
 close (M);
 exit;
+
+sub printAnnotationLine() {
+	my ($chr, $begin, $end, $ref, $var, $type, $qual, $loci_r, $gene_r, $transcript_r, $curr_loci, $decoded_json) = @_;
+	my $rtn = '';
+
+	if ($type eq 'no-call') {
+		$rtn = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci_r->{$curr_loci}\t$gene_r->{$loci{$curr_loci}}\t$transcript_r->{$loci{$curr_loci}}\tno-call\t$qual");
+	} else {
+		my $var_name = '';
+		my $tx_orientation = '';
+		my $genepart = '';
+		my $rpt_varname = $var_name = $decoded_json->{"var"}{"VarName"};
+		if (exists ($decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}})) {
+			$var_name = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"TranscriptVarName"};
+			$tx_orientation = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"TranscriptOrientation"};
+			$genepart = $decoded_json->{"trInfo"}{$transcript_r->{$loci_r->{$curr_loci}}}{"GenePart"};
+		} else {
+			$var_name = $decoded_json->{"var"}{"VarName"};
+			print "varname $curr_loci $var_name\n";
+			my $txname = (split (/\s*\(/, $var_name))[0];
+			$tx_orientation = $decoded_json->{"trInfo"}{$txname}{"TranscriptOrientation"};
+			$genepart = $decoded_json->{"trInfo"}{$txname}{"GenePart"};
+			print "varname $var_name $txname $tx_orientation \n";
+		}
+		
+		if ($var_name eq $rpt_varname) {
+			$rpt_varname = 'same';
+		}
+
+		my $tenK_AF = "N/A";
+		if (exists ($decoded_json->{"var"}{"1000G_AF"})) {
+			$tenK_AF = $decoded_json->{"var"}{"1000G_AF"};
+		}
+
+		my $dbsnpIds = "N/A";
+		if (exists ($decoded_json->{"var"}{"dbsnpIds"})) {
+			$dbsnpIds = $decoded_json->{"var"}{"dbsnpIds"};
+		}
+
+		$rtn = sprintf("%s", "$chr\t$begin\t$end\t$ref\t$var\t$type\t$loci_r->{$curr_loci}\t$gene_r->{$loci{$curr_loci}}\t$qual\t$transcript_r->{$loci{$curr_loci}}\t$var_name\t$rpt_varname\t$tx_orientation\t$genepart\t$tenK_AF\t$dbsnpIds");
+	}
+
+	return $rtn;
+}
 
 sub isMatch () {
 	my ($chr, $begin, $end, $curr_loci) = @_;
@@ -244,86 +276,8 @@ sub isMatch () {
 
 	return $rtn;
 }
-# 	print "here\n";
-# 	foreach my $fh (@ready) {
-# 		my $line = <$fh>;
-# 		if (!defined $line) {
-# 			$reader->remove($fh);
-# 			$fh->close();
-# 		} else {
-
-			
-# 			if (fileno($fh) == fileno(\*VARCHLD_OUT)) {
-# 				if ($line =~ /^\d+\s+\d+\s+\S+\s+(chr\S+)\s+(\d+)\s+(\d+)\s+\S+\s+(\S+)\s+(\S+)/) {
-# 					my ($chr, $begin, $end, $ref, $var) = ($1, $2, $3, $4, $5);
-# 					print "($chr, $begin, $end, $ref, $var)\n";
-# 				}
-# 			}
-# 		}
-# 	}
-# }
-
-
-# while ( my @ready = $reader_var->can_read() ) {
-# 	print "here\n";
-# 	foreach my $fh (@ready) {
-# 		my $line = <$fh>;
-# 		if (!defined $line) {
-# 			$reader->remove($fh);
-# 			$fh->close();
-# 		} else {
-
-
-# 			if (fileno($fh) == fileno(\*VARCHLD_OUT)) {
-# 				if ($line =~ /^\d+\s+\d+\s+\S+\s+(chr\S+)\s+(\d+)\s+(\d+)\s+\S+\s+(\S+)\s+(\S+)/) {
-# 					my ($chr, $begin, $end, $ref, $var) = ($1, $2, $3, $4, $5);
-# 					print "($chr, $begin, $end, $ref, $var)\n";
-# 				}
-# 			}
-# 		}
-# 	}
-# }
 
 exit;
-
-for(my $i=1;$i<12;$i++) {
-	print "$i\n";
-	print CHLD_IN "\'\{\"chr\":\"chr8\",\"begin\":\"24811065\",\"end\":\"24811066\",\"referenceSequence\":\"G\",\"variantSequence\":\"A\"\}\'\n";
-	my $cnt = 0;
-	while ( my @ready = $reader->can_read() ) {
-		$cnt++;
-		print "$cnt\n";
-		foreach my $fh (@ready) {
-			my $line = <$fh>;
-			if (!defined $line) {
-				$reader->remove($fh);
-				$fh->close();
-			} else {
-				print fileno(\*CHLD_OUT)."  id\n";
-				print fileno($fh)."  fh id\n";
-				if (fileno($fh) == fileno(\*CHLD_OUT)) {
-					$out .= $line;
-
-					my $decoded = decode_json($line);
-					print $decoded->{'var'}{'chr'}."  chr \n";
-
-					print "here\n";
-					print STDOUT $line;
-				}
-				elsif (fileno($fh) == fileno(\*CHLD_ERR)) {
-					$err .= $line;
-					print STDERR $line;
-				}
-			}
-		}
-		last;
-	}	
-	print "$i last\n";
-	#print CHLD_IN "$i\n";
-
-    #print "Got $r from child\n";
-}
-waitpid($pid, 1);
 
 
 sub parse_varfileLine () {
