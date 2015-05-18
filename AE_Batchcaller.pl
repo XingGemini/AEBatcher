@@ -54,6 +54,7 @@ print "perl $AE_path/AE_xs.pl\n";
 my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, "perl $AE_path/AE_xs.pl")
 #my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, 'cat')
     or die "open3() failed $!";
+    # open filehandles for input stream, output stream and error stream
 
 my $pid_var = open3(\*VARCHLD_IN, \*VARCHLD_OUT, \*VARCHLD_ERR, "bzcat $var_f")
 #my $pid = open3(\*CHLD_IN, \*CHLD_OUT, \*CHLD_ERR, 'cat')
@@ -121,9 +122,12 @@ while (<$fhvar>) {
 			print "match ($chr, $begin, $end, $ref, $var)\n";
 
 			print CHLD_IN &inputjson($chr, $begin, $end, $ref, $var);
+			#Give the AE stream an input json string
 			my $tmpline = <CHLD_OUT>;
+			#The AE stream output (just one line of json output)
 
 			my $decoded_json = decode_json($tmpline);
+			#json structure handle
 
 			if ($allele eq 'all') {
 				if (($ref eq '=') && ($var eq '=')) {
